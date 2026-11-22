@@ -191,6 +191,7 @@ export default function App() {
 
   function updateReview(status) {
     if (!activeReview) return;
+    if (currentUser && !["admin", "reviewer"].includes(currentUser.role)) return notify("Only reviewers can approve or reject submitted content.");
     const updated = { ...activeReview, status, finalContent: activeReview.finalContent || activeReview.original, comments, reviewedAt: new Date().toISOString() };
     setStore(s => ({ ...s, reviews: s.reviews.map(r => r.id === activeReview.id ? updated : r) }));
     setActiveReview(updated);
