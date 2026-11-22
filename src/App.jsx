@@ -5,7 +5,7 @@ import {
   Search, Bell, Plus, Upload, FileText, Check, X, AlertTriangle,
   ChevronRight, ArrowUpRight, Sparkles, Settings2, Trash2, Save,
   RotateCcw, Leaf, Menu, CheckCircle2, Clock3, CircleAlert, Pencil,
-  ExternalLink, Info
+  ExternalLink, Info, Users, LogIn, LogOut
 } from "lucide-react";
 
 const starterBrand = {
@@ -105,8 +105,40 @@ export default function App() {
   const [visualResult, setVisualResult] = useState(null);
   const [visualBusy, setVisualBusy] = useState(false);
   const [paletteDraft, setPaletteDraft] = useState((store.brand.visual?.colors || []).join(", "));
+  const [currentUser, setCurrentUser] = useState(null);
+  const [workspaceInfo, setWorkspaceInfo] = useState(null);
+  const [workspaceReady, setWorkspaceReady] = useState(false);
+  const [authMode, setAuthMode] = useState("login");
+  const [authName, setAuthName] = useState("");
+  const [authWorkspace, setAuthWorkspace] = useState("");
+  const [authInvite, setAuthInvite] = useState("");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authRole, setAuthRole] = useState("creator");
+  const [authBusy, setAuthBusy] = useState(false);
 
   useEffect(() => saveStore(store), [store]);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/workspace").then(async response => {
+      if (!response.ok) return null;
+      return response.json();
+    }).then(data => {
+      if (!alive || !data?.authenticated) return;
+      if (data.brand && Object.keys(data.brand).length) setStore({ brand: data.brand, reviews: data.reviews || [] });
+      setCurrentUser(data.user); setWorkspaceInfo(data.workspace); setWorkspaceReady(true);
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  useEffect(() => {
+    if (!currentUser || !workspaceReady) return;
+    const handle = window.setTimeout(() => {
+      fetch("/api/workspace", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ brand: store.brand, reviews: store.reviews || [] }) })
+        .then(response => { if (!response.ok) throw new Error("Sync unavailable"); })
+        .catch(() => notify("Workspace sync failed. Check the D1 database connection."));
+    }, 500);
+    return () => window.clearTimeout(handle);
+  }, [store, currentUser, workspaceReady]);
   const reviews = store.reviews || [];
   const approved = reviews.filter(r => r.status === "Approved").length;
   const pending = reviews.filter(r => r.status === "Pending").length;
@@ -165,7 +197,33 @@ export default function App() {
     notify(`Review marked ${status.toLowerCase()}.`);
   }
 
-  function updateBrand(next) { setStore(s => ({ ...s, brand: next })); }
+  function updateBrand(next) {
+    if (currentUser?.role === "reviewer") return notify("Reviewer accounts cannot edit brand guidelines.");
+    setStore(s => ({ ...s, brand: next }));
+  }
+  async function submitAuth(event) {
+    event.preventDefault();
+    setAuthBusy(true);
+    try {
+      const response = await fetch("/api/workspace", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(authMode === "login"
+          ? { action: "login", email: authEmail, password: authPassword }
+          : { action: "signup", name: authName, workspaceName: authWorkspace, inviteCode: authInvite, role: authRole, email: authEmail, password: authPassword, brand: store.brand })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Could not sign in.");
+      const loaded = await fetch("/api/workspace").then(r => r.json());
+      setCurrentUser(loaded.user); setWorkspaceInfo(loaded.workspace);
+      if (loaded.brand && Object.keys(loaded.brand).length) setStore({ brand: loaded.brand, reviews: loaded.reviews || [] });
+      setWorkspaceReady(true); setAuthPassword(""); notify("Connected to shared workspace.");
+    } catch (err) { notify(err.message || "Workspace service is unavailable."); }
+    finally { setAuthBusy(false); }
+  }
+  async function signOut() {
+    try { await fetch("/api/workspace", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "logout" }) }); } catch {}
+    setCurrentUser(null); setWorkspaceInfo(null); setWorkspaceReady(false); notify("Signed out. Local demo data remains on this browser.");
+  }
   function addRule() {
     if (!ruleDraft.trim()) return;
     updateBrand({ ...brand, rules: [...brand.rules, { id: id(), category: newRuleCategory, rule: ruleDraft.trim(), severity: "Medium" }] });
@@ -186,6 +244,7 @@ export default function App() {
     ["check", ClipboardCheck, "Check content"],
     ["visual", ImageIcon, "Visual checks"],
     ["knowledge", BookOpen, "Brand knowledge"],
+    ["account", Users, "Team workspace"],
     ["history", History, "Review history"]
   ];
 
@@ -199,7 +258,7 @@ export default function App() {
     </aside>
 
     <main className="main-area">
-      <header className="topbar"><button className="mobile-menu" onClick={() => setMobileNav(v => !v)}><Menu size={20}/></button><div className="crumb">Workspace <ChevronRight size={14}/> <b>{nav.find(n => n[0] === page)?.[2] || (page === "review" ? "Human review" : "Check content")}</b></div><div className="top-actions"><span className="protection"><i/> Live protection</span><IconButton title="Search"><Search size={18}/></IconButton></div></header>
+      <header className="topbar"><button className="mobile-menu" onClick={() => setMobileNav(v => !v)}><Menu size={20}/></button><div className="crumb">Workspace <ChevronRight size={14}/> <b>{nav.find(n => n[0] === page)?.[2] || (page === "review" ? "Human review" : "Check content")}</b></div><div className="top-actions"><span className="protection"><i/> {currentUser ? `Synced · ${currentUser.role}` : "Local demo mode"}</span><button className="secondary small" onClick={() => go("account")}>{currentUser ? <><Users size={14}/> {currentUser.name}</> : <><LogIn size={14}/> Team sign in</>}</button></div></header>
 
       {page === "overview" && <section className="page">
         <div className="eyebrow">BRAND GOVERNANCE / OVERVIEW</div>
@@ -258,6 +317,33 @@ export default function App() {
         {!activeReview ? <div className="panel empty-state"><b>No review selected</b><p>Choose a review from the dashboard or history.</p><button className="secondary" onClick={()=>go("history")}>Open history</button></div> :
         <div className="review-detail-grid"><div className="panel"><div className="panel-head"><div><div className="eyebrow">SUBMITTED CONTENT</div><h2>{activeReview.title}</h2></div><Badge>{activeReview.type}</Badge></div><div className="content-preview">{activeReview.original}</div><div className="eyebrow issue-heading">DETECTED ISSUES · {activeReview.issues?.length||0}</div>{(activeReview.issues||[]).map(i=><div className="compact-issue" key={i.id}><div className="issue-top"><b>{i.category}</b><Badge kind={i.severity==="High"?"danger":"warning"}>{i.severity}</Badge></div><blockquote>“{i.phrase}”</blockquote><small>RULE</small><p>{i.rule}</p><small>SUGGESTION</small><p>{i.suggestion}</p></div>)}</div>
           <div className="panel"><div className="eyebrow">HUMAN DECISION</div><h2>Final review</h2><label className="field-label">Final content<textarea className="final-content" value={activeReview.finalContent ?? activeReview.original} onChange={e=>setActiveReview({...activeReview,finalContent:e.target.value})}/></label><label className="field-label">Reviewer comments<textarea value={comments} onChange={e=>setComments(e.target.value)} placeholder="Add context for your decision (optional)"/></label><div className="review-actions"><button className="danger-button" onClick={()=>updateReview("Rejected")}><X size={15}/> Reject</button><button className="primary" onClick={()=>updateReview("Approved")}><Check size={16}/> Approve content</button></div><button className="text-button full" onClick={()=>{setContent(activeReview.finalContent??activeReview.original);setTitle(activeReview.title);setPage("check");setAnalysis(null);}}>Re-check edited content <ArrowUpRight size={14}/></button><p className="muted tiny">Approval records your human decision. Review the final text carefully before approving.</p></div></div>}
+      </section>}
+      {page === "account" && <section className="page">
+        <div className="eyebrow">WORKSPACE / TEAM ACCESS</div>
+        <div className="page-heading-row"><div><h1>Team workspace</h1><p>Sign in to share brand guidelines and review history across your team.</p></div><Badge kind={currentUser ? "success" : "warning"}>{currentUser ? "Connected" : "Local demo mode"}</Badge></div>
+        {currentUser ? <div className="panel">
+          <div className="eyebrow">SIGNED-IN ACCOUNT</div><h2>{currentUser.name}</h2>
+          <p className="muted">{currentUser.email} · {currentUser.role}</p>
+          <div className="rule-box"><small>SHARED WORKSPACE</small><p>{workspaceInfo?.name || "Team workspace"}</p><small>INVITE CODE</small><p style={{fontSize:18,letterSpacing:2}}>{workspaceInfo?.invite_code || "Not available"}</p><p className="muted">Share this code only with trusted team members. They can join using the same invite code.</p></div>
+          <button className="danger-button" onClick={signOut}><LogOut size={15}/> Sign out</button>
+        </div> : <div className="panel" style={{maxWidth:650}}>
+          <div className="segmented-control" style={{display:"flex",gap:8,marginBottom:18}}>
+            <button className={authMode==="login"?"primary":"secondary"} onClick={()=>setAuthMode("login")}>Sign in</button>
+            <button className={authMode==="signup"?"primary":"secondary"} onClick={()=>setAuthMode("signup")}>Create / join workspace</button>
+          </div>
+          <form onSubmit={submitAuth}>
+            {authMode==="signup" && <>
+              <label className="field-label">Your name<input required value={authName} onChange={e=>setAuthName(e.target.value)} placeholder="Name"/></label>
+              <label className="field-label">Workspace name<input value={authWorkspace} onChange={e=>setAuthWorkspace(e.target.value)} placeholder="Required when creating a new workspace"/></label>
+              <label className="field-label">Invite code (leave blank to create a new workspace)<input value={authInvite} onChange={e=>setAuthInvite(e.target.value)} placeholder="Team invite code"/></label>
+              {authInvite && <label className="field-label">Team role<select value={authRole} onChange={e=>setAuthRole(e.target.value)}><option value="creator">Content creator</option><option value="reviewer">Reviewer</option></select></label>}
+            </>}
+            <label className="field-label">Email<input required type="email" value={authEmail} onChange={e=>setAuthEmail(e.target.value)} placeholder="you@example.com"/></label>
+            <label className="field-label">Password<input required type="password" minLength={10} value={authPassword} onChange={e=>setAuthPassword(e.target.value)} placeholder="At least 10 characters"/></label>
+            <button className="primary" type="submit" disabled={authBusy}>{authBusy?<><span className="spinner"/> Connecting...</>:authMode==="login"?"Sign in":"Create account / join team"}</button>
+          </form>
+          <p className="muted tiny">Local demo mode remains available without signing in. Shared team accounts require the Cloudflare D1 database to be configured.</p>
+        </div>}
       </section>}
       {page === "visual" && <section className="page">
         <div className="eyebrow">BRAND GOVERNANCE / VISUAL REVIEW</div>
