@@ -8,10 +8,9 @@ directory = "./dist"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
 
-# After creating the D1 database, add:
-# [[d1_databases]]
-# binding = "DB"
-# database_name = "suraksha-setu-db"
-# database_id = "PASTE_DATABASE_ID_HERE"
+[[d1_databases]]
+binding = "DB"
+database_name = "suraksha-setu-db"
+database_id = "00778c88-9308-447e-b51b-bcaf397664e2"
 
 [previews]
