@@ -125,7 +125,7 @@ export default function App() {
       return response.json();
     }).then(data => {
       if (!alive || !data?.authenticated) return;
-      if (data.brand && Object.keys(data.brand).length) setStore({ brand: data.brand, reviews: data.reviews || [] });
+      if (data.brand && Object.keys(data.brand).length) { setStore({ brand: data.brand, reviews: data.reviews || [] }); setPaletteDraft((data.brand.visual?.colors || []).join(", ")); }
       setCurrentUser(data.user); setWorkspaceInfo(data.workspace); setWorkspaceReady(true);
     }).catch(() => {});
     return () => { alive = false; };
@@ -217,7 +217,7 @@ export default function App() {
       if (!response.ok) throw new Error(result.error || "Could not sign in.");
       const loaded = await fetch("/api/workspace").then(r => r.json());
       setCurrentUser(loaded.user); setWorkspaceInfo(loaded.workspace);
-      if (loaded.brand && Object.keys(loaded.brand).length) setStore({ brand: loaded.brand, reviews: loaded.reviews || [] });
+      if (loaded.brand && Object.keys(loaded.brand).length) { setStore({ brand: loaded.brand, reviews: loaded.reviews || [] }); setPaletteDraft((loaded.brand.visual?.colors || []).join(", ")); }
       setWorkspaceReady(true); setAuthPassword(""); notify("Connected to shared workspace.");
     } catch (err) { notify(err.message || "Workspace service is unavailable."); }
     finally { setAuthBusy(false); }
@@ -286,7 +286,7 @@ export default function App() {
       {page === "check" && <section className="page">
         <div className="eyebrow">ANALYSIS / NEW CHECK</div><div className="page-heading-row"><div><h1>Check your content</h1><p>Test a message against the exact rules in your brand knowledge base.</p></div><Badge kind="info"><ShieldCheck size={13}/> AI-assisted review</Badge></div>
         <div className="check-layout">
-          <div className="panel input-panel"><div className="panel-head"><div><div className="eyebrow">CONTENT INPUT</div><h2>Bring your message</h2></div><label className="upload-link"><Upload size={15}/> Upload file<input type="file" accept=".txt,.md,.csv,.pdf" onChange={async e => { const f=e.target.files?.[0]; if(!f)return; if(f.type==="application/pdf" || f.name.toLowerCase().endsWith(".pdf")){try{const result=await extractPdfText(f);setContent(result.text);setTitle(f.name.replace(/\\.[^.]+$/,""));notify(`Extracted text from ${result.pages} PDF page(s).`);}catch(err){notify(err.message || "Could not read this PDF.");}return;} if(!/\\.(txt|md|csv)$/i.test(f.name)){notify("Supported files: PDF, TXT, MD and CSV.");return;} try{setContent(await f.text());setTitle(f.name.replace(/\\.[^.]+$/,""));notify("File loaded successfully.");}catch{notify("This file could not be read.");} }}/></label></div>
+          <div className="panel input-panel"><div className="panel-head"><div><div className="eyebrow">CONTENT INPUT</div><h2>Bring your message</h2></div><label className="upload-link"><Upload size={15}/> Upload file<input type="file" accept=".txt,.md,.csv,.pdf" onChange={async e => { const f=e.target.files?.[0]; if(!f)return; if(f.type==="application/pdf" || f.name.toLowerCase().endsWith(".pdf")){try{const result=await extractPdfText(f);setContent(result.text);setTitle(f.name.replace(/\.[^.]+$/,""));notify(`Extracted text from ${result.pages} PDF page(s).`);}catch(err){notify(err.message || "Could not read this PDF.");}return;} if(!/\.(txt|md|csv)$/i.test(f.name)){notify("Supported files: PDF, TXT, MD and CSV.");return;} try{setContent(await f.text());setTitle(f.name.replace(/\.[^.]+$/,""));notify("File loaded successfully.");}catch{notify("This file could not be read.");} }}/></label></div>
             <label className="field-label">Content title<input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Summer campaign email"/></label>
             <div className="two-fields"><label className="field-label">Content type<select value={type} onChange={e => setType(e.target.value)}>{["Social media post","Advertisement","Email","Marketing campaign","Document"].map(x=><option key={x}>{x}</option>)}</select></label><label className="field-label">Brand profile<select value={brand.id}><option value={brand.id}>{brand.name}</option></select></label></div>
             <label className="field-label">Content to review<textarea className="content-area" value={content} onChange={e => setContent(e.target.value)} placeholder="Paste your content here..."/></label>
