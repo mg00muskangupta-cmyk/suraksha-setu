@@ -109,6 +109,7 @@ export default function App() {
   const [paletteDraft, setPaletteDraft] = useState((store.brand.visual?.colors || []).join(", "));
   const [currentUser, setCurrentUser] = useState(null);
   const [workspaceInfo, setWorkspaceInfo] = useState(null);
+  const [teamMembers, setTeamMembers] = useState([]);
   const [workspaceReady, setWorkspaceReady] = useState(false);
   const [authMode, setAuthMode] = useState("login");
   const [authName, setAuthName] = useState("");
@@ -128,7 +129,7 @@ export default function App() {
     }).then(data => {
       if (!alive || !data?.authenticated) return;
       if (data.brand && Object.keys(data.brand).length) { setStore({ brand: data.brand, reviews: data.reviews || [] }); setPaletteDraft((data.brand.visual?.colors || []).join(", ")); }
-      setCurrentUser(data.user); setWorkspaceInfo(data.workspace); setWorkspaceReady(true);
+      setCurrentUser(data.user); setWorkspaceInfo(data.workspace); setTeamMembers(data.members || []); setWorkspaceReady(true);
     }).catch(() => {});
     return () => { alive = false; };
   }, []);
@@ -222,7 +223,7 @@ export default function App() {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Could not sign in.");
       const loaded = await fetch("/api/workspace").then(r => r.json());
-      setCurrentUser(loaded.user); setWorkspaceInfo(loaded.workspace);
+      setCurrentUser(loaded.user); setWorkspaceInfo(loaded.workspace); setTeamMembers(loaded.members || []);
       if (loaded.brand && Object.keys(loaded.brand).length) { setStore({ brand: loaded.brand, reviews: loaded.reviews || [] }); setPaletteDraft((loaded.brand.visual?.colors || []).join(", ")); }
       setWorkspaceReady(true); setAuthPassword(""); notify("Connected to shared workspace.");
     } catch (err) { notify(err.message || "Workspace service is unavailable."); }
@@ -333,6 +334,10 @@ export default function App() {
           <div className="eyebrow">SIGNED-IN ACCOUNT</div><h2>{currentUser.name}</h2>
           <p className="muted">{currentUser.email} · {currentUser.role}</p>
           <div className="rule-box"><small>SHARED WORKSPACE</small><p>{workspaceInfo?.name || "Team workspace"}</p><small>INVITE CODE</small><p style={{fontSize:18,letterSpacing:2}}>{workspaceInfo?.invite_code || "Not available"}</p><p className="muted">Share this code only with trusted team members. They can join using the same invite code.</p></div>
+          <div className="panel" style={{marginTop:18}}>
+            <div className="eyebrow">TEAM DIRECTORY</div><h2>Team members ({teamMembers.length})</h2>
+            {teamMembers.length ? <div className="review-list">{teamMembers.map(member=><div className="review-row" key={member.id}><div className="file-icon"><Users size={17}/></div><div className="review-meta"><b>{member.name}</b><small>{member.email}</small></div><Badge kind={member.role==="admin"?"success":"info"}>{member.role}</Badge></div>)}</div> : <p className="muted">No team members found yet. Refresh to update the list.</p>}
+          </div>
           <button className="danger-button" onClick={signOut}><LogOut size={15}/> Sign out</button>
         </div> : <div className="panel" style={{maxWidth:650}}>
           <div className="segmented-control" style={{display:"flex",gap:8,marginBottom:18}}>
