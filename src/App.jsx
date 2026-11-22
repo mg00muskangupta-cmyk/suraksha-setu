@@ -172,6 +172,7 @@ export default function App() {
 
   function saveReview(status = "Pending") {
     if (!analysis) return;
+    if (currentUser?.role === "reviewer") return notify("Reviewer accounts review existing submissions; they cannot create new ones.");
     const review = {
       id: id(), title: title || "Untitled content", type, original: content,
       finalContent: content, issues: analysis.issues, score: analysis.score,
