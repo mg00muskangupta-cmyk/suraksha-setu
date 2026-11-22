@@ -83,7 +83,7 @@ export async function onRequestPost({ request, env }) {
     if (body.action === "signup") {
       const name = String(body.name || "").trim().slice(0, 80);
       const workspaceName = String(body.workspaceName || "").trim().slice(0, 80);
-      if (!name || !workspaceName) return json({ error: "Name and workspace name are required." }, 400);
+      if (!name || (!body.inviteCode && !workspaceName)) return json({ error: "Name and workspace name are required when creating a workspace." }, 400);
       const exists = await env.DB.prepare("SELECT id FROM users WHERE email=?").bind(email).first();
       if (exists) return json({ error: "An account with this email already exists. Please sign in." }, 409);
       let workspace;
@@ -123,7 +123,27 @@ export async function onRequestPut({ request, env }) {
     if (!current) return json({ error: "Workspace data was not initialized." }, 404);
     const canEditBrand = ["admin", "creator"].includes(user.role);
     const brand = canEditBrand && body.brand ? JSON.stringify(body.brand) : current.brand_json;
-    const reviews = Array.isArray(body.reviews) ? JSON.stringify(body.reviews) : current.reviews_json;
+    let reviews = current.reviews_json;
+    if (Array.isArray(body.reviews)) {
+      const oldReviews = JSON.parse(current.reviews_json || "[]");
+      const nextReviews = body.reviews;
+      const oldById = new Map(oldReviews.map(item => [item.id, item]));
+      if (user.role === "reviewer") {
+        if (nextReviews.length !== oldReviews.length || nextReviews.some(item => !oldById.has(item.id))) {
+          return json({ error: "Reviewer accounts can update existing reviews but cannot create or delete submissions." }, 403);
+        }
+      }
+      if (user.role === "creator") {
+        const nextById = new Map(nextReviews.map(item => [item.id, item]));
+        if (oldReviews.some(item => !nextById.has(item.id) || nextById.get(item.id).status !== item.status)) {
+          return json({ error: "Content creators cannot change reviewer decisions or delete history." }, 403);
+        }
+        if (nextReviews.some(item => !oldById.has(item.id) && item.status !== "Pending")) {
+          return json({ error: "New creator submissions must start as Pending." }, 403);
+        }
+      }
+      reviews = JSON.stringify(nextReviews);
+    }
     await env.DB.prepare("UPDATE workspace_data SET brand_json=?,reviews_json=?,updated_at=? WHERE workspace_id=?")
       .bind(brand, reviews, new Date().toISOString(), user.workspace_id).run();
     return json({ ok: true, brandUpdated: canEditBrand && !!body.brand, reviewsUpdated: Array.isArray(body.reviews) });
