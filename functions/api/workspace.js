@@ -49,7 +49,8 @@ export async function onRequestGet({ request, env }) {
     if (!user) return json({ authenticated: false }, 401);
     const data = await env.DB.prepare("SELECT brand_json,reviews_json FROM workspace_data WHERE workspace_id=?").bind(user.workspace_id).first();
     const workspace = await env.DB.prepare("SELECT name,invite_code FROM workspaces WHERE id=?").bind(user.workspace_id).first();
-    return json({ authenticated: true, user: { id: user.id, name: user.name, email: user.email, role: user.role }, workspace, brand: data ? JSON.parse(data.brand_json) : null, reviews: data ? JSON.parse(data.reviews_json) : [] });
+    const membersResult = await env.DB.prepare("SELECT id,name,email,role,created_at FROM users WHERE workspace_id=? ORDER BY created_at ASC").bind(user.workspace_id).all();
+    return json({ authenticated: true, user: { id: user.id, name: user.name, email: user.email, role: user.role }, workspace, members: membersResult.results || [], brand: data ? JSON.parse(data.brand_json) : null, reviews: data ? JSON.parse(data.reviews_json) : [] });
   } catch (error) {
     return json({ error: error.message || "Workspace service unavailable." }, 503);
   }
