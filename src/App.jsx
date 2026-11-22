@@ -93,6 +93,8 @@ export default function App() {
   const [type, setType] = useState("Advertisement");
   const [content, setContent] = useState(sampleText);
   const [analysis, setAnalysis] = useState(null);
+  const [analysisStale, setAnalysisStale] = useState(false);
+  const [analysisSaved, setAnalysisSaved] = useState(false);
   const [busy, setBusy] = useState(false);
   const [activeReview, setActiveReview] = useState(null);
   const [comments, setComments] = useState("");
@@ -150,7 +152,7 @@ export default function App() {
 
   async function runAnalysis() {
     if (!content.trim()) return notify("Add content before running a check.");
-    setBusy(true); setAnalysis(null);
+    setBusy(true); setAnalysis(null); setAnalysisStale(false); setAnalysisSaved(false);
     try {
       const response = await fetch("/api/analyze", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -159,20 +161,23 @@ export default function App() {
       if (response.ok) {
         const data = await response.json();
         if (Array.isArray(data.issues)) {
-          setAnalysis({ ...data, mode: "AI-assisted" });
+          setAnalysis({ ...data, mode: "AI-assisted" }); setAnalysisStale(false);
           setBusy(false);
           return;
         }
       }
     } catch {}
     await new Promise(r => setTimeout(r, 450));
-    setAnalysis({ ...analyzeLocally(content, brand), mode: "Guideline-based demo checks" });
+    setAnalysis({ ...analyzeLocally(content, brand), mode: "Guideline-based demo checks" }); setAnalysisStale(false);
     setBusy(false);
   }
 
   function saveReview(status = "Pending") {
     if (!analysis) return;
+    if (analysisStale) return notify("Re-analyze the updated content before submitting it.");
+    if (analysisSaved) return notify("This analysis has already been submitted. Run a new check to submit another version.");
     if (currentUser?.role === "reviewer") return notify("Reviewer accounts review existing submissions; they cannot create new ones.");
+    setAnalysisSaved(true);
     const review = {
       id: id(), title: title || "Untitled content", type, original: content,
       finalContent: content, issues: analysis.issues, score: analysis.score,
@@ -186,6 +191,7 @@ export default function App() {
 
   function applySuggestion(issue) {
     setContent(prev => prev.replace(issue.phrase, issue.suggestion));
+    setAnalysisStale(true); setAnalysisSaved(false);
     setAnalysis(prev => ({ ...prev, summary: "A suggested change was applied. Re-analyze the updated content before approval." }));
     notify("Suggested correction applied to the editor.");
   }
@@ -286,15 +292,15 @@ export default function App() {
       {page === "check" && <section className="page">
         <div className="eyebrow">ANALYSIS / NEW CHECK</div><div className="page-heading-row"><div><h1>Check your content</h1><p>Test a message against the exact rules in your brand knowledge base.</p></div><Badge kind="info"><ShieldCheck size={13}/> AI-assisted review</Badge></div>
         <div className="check-layout">
-          <div className="panel input-panel"><div className="panel-head"><div><div className="eyebrow">CONTENT INPUT</div><h2>Bring your message</h2></div><label className="upload-link"><Upload size={15}/> Upload file<input type="file" accept=".txt,.md,.csv,.pdf" onChange={async e => { const f=e.target.files?.[0]; if(!f)return; if(f.type==="application/pdf" || f.name.toLowerCase().endsWith(".pdf")){try{const result=await extractPdfText(f);setContent(result.text);setTitle(f.name.replace(/\.[^.]+$/,""));notify(`Extracted text from ${result.pages} PDF page(s).`);}catch(err){notify(err.message || "Could not read this PDF.");}return;} if(!/\.(txt|md|csv)$/i.test(f.name)){notify("Supported files: PDF, TXT, MD and CSV.");return;} try{setContent(await f.text());setTitle(f.name.replace(/\.[^.]+$/,""));notify("File loaded successfully.");}catch{notify("This file could not be read.");} }}/></label></div>
+          <div className="panel input-panel"><div className="panel-head"><div><div className="eyebrow">CONTENT INPUT</div><h2>Bring your message</h2></div><label className="upload-link"><Upload size={15}/> Upload file<input type="file" accept=".txt,.md,.csv,.pdf" onChange={async e => { const f=e.target.files?.[0]; if(!f)return; if(f.type==="application/pdf" || f.name.toLowerCase().endsWith(".pdf")){try{const result=await extractPdfText(f);setContent(result.text);setAnalysis(null);setAnalysisStale(false);setAnalysisSaved(false);setTitle(f.name.replace(/\.[^.]+$/,""));notify(`Extracted text from ${result.pages} PDF page(s).`);}catch(err){notify(err.message || "Could not read this PDF.");}return;} if(!/\.(txt|md|csv)$/i.test(f.name)){notify("Supported files: PDF, TXT, MD and CSV.");return;} try{setContent(await f.text());setAnalysis(null);setAnalysisStale(false);setAnalysisSaved(false);setTitle(f.name.replace(/\.[^.]+$/,""));notify("File loaded successfully.");}catch{notify("This file could not be read.");} }}/></label></div>
             <label className="field-label">Content title<input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Summer campaign email"/></label>
             <div className="two-fields"><label className="field-label">Content type<select value={type} onChange={e => setType(e.target.value)}>{["Social media post","Advertisement","Email","Marketing campaign","Document"].map(x=><option key={x}>{x}</option>)}</select></label><label className="field-label">Brand profile<select value={brand.id}><option value={brand.id}>{brand.name}</option></select></label></div>
-            <label className="field-label">Content to review<textarea className="content-area" value={content} onChange={e => setContent(e.target.value)} placeholder="Paste your content here..."/></label>
+            <label className="field-label">Content to review<textarea className="content-area" value={content} onChange={e => {setContent(e.target.value);setAnalysisStale(true);setAnalysisSaved(false);}} placeholder="Paste your content here..."/></label>
             <div className="input-footer"><span>{content.trim().length} characters</span><button className="primary" disabled={busy || !content.trim()} onClick={runAnalysis}>{busy ? <><span className="spinner"/> Analyzing...</> : <><Sparkles size={16}/> Analyze content</>}</button></div>
-            {analysis && <div className="results-block">
+            {analysis && <div className="results-block">{analysisStale && <div className="notice-box"><AlertTriangle size={15}/> Content changed since this result. Re-analyze before sending it for review.</div>}{analysisSaved && <div className="success-message"><CheckCircle2 size={16}/> This analysis has already been submitted.</div>}
               <div className="result-summary"><div><div className="eyebrow">ANALYSIS COMPLETE · {analysis.mode}</div><h2>{analysis.issues.length ? `${analysis.issues.length} potential issue${analysis.issues.length===1?"":"s"} found` : "No configured issues detected"}</h2><p>{analysis.summary}</p></div><div className="score"><strong>{analysis.score}</strong><small>estimated score</small></div></div>
               {analysis.issues.length === 0 ? <div className="success-message"><CheckCircle2 size={18}/> No issues found by the configured checks. Human review is still recommended.</div> : analysis.issues.map(issue => <div className="issue-card" key={issue.id}><div className="issue-top"><div><span className="issue-bullet"/> <b>{issue.category}</b></div><Badge kind={issue.severity==="High"?"danger":issue.severity==="Medium"?"warning":"neutral"}>{issue.severity}</Badge></div><blockquote>“{issue.phrase}”</blockquote><div className="rule-box"><small>RELEVANT BRAND RULE</small><p>{issue.rule}</p></div><p className="issue-explanation">{issue.explanation}</p><div className="suggestion"><b><Check size={14}/> Suggested correction</b><p>{issue.suggestion}</p><button className="secondary small" onClick={() => applySuggestion(issue)}>Apply correction</button></div></div>)}
-              <div className="analysis-actions"><button className="secondary" onClick={runAnalysis}><RotateCcw size={15}/> Re-analyze content</button><button className="primary" onClick={() => saveReview("Pending")}><ClipboardCheck size={15}/> Send for human review</button></div>
+              <div className="analysis-actions"><button className="secondary" onClick={runAnalysis}><RotateCcw size={15}/> Re-analyze content</button><button className="primary" disabled={analysisStale || analysisSaved} onClick={() => saveReview("Pending")}><ClipboardCheck size={15}/> Send for human review</button></div>
             </div>}
           </div>
           <aside className="panel side-info"><div className="eyebrow">BEFORE YOU SUBMIT</div><h2>What we look for</h2>{[["01","Tone & personality","Does it sound like your brand?"],["02","Terminology","Are approved words being used?"],["03","Claims & evidence","Can the message be supported?"],["04","Messaging","Could it mislead your audience?"]].map(x=><div className="look-row" key={x[0]}><span>{x[0]}</span><div><b>{x[1]}</b><small>{x[2]}</small></div></div>)}<div className="notice-box"><AlertTriangle size={15}/> AI suggestions support review. A human always makes the final call.</div></aside>
