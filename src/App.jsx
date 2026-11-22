@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { extractPdfText, analyzeVisualCreative, makeLogoReference } from "./advancedChecks.js";
 import {
-  ShieldCheck, LayoutDashboard, ClipboardCheck, BookOpen, History,
+  ShieldCheck, LayoutDashboard, ClipboardCheck, BookOpen, History, Image as ImageIcon,
   Search, Bell, Plus, Upload, FileText, Check, X, AlertTriangle,
   ChevronRight, ArrowUpRight, Sparkles, Settings2, Trash2, Save,
   RotateCcw, Leaf, Menu, CheckCircle2, Clock3, CircleAlert, Pencil,
@@ -25,7 +26,8 @@ const starterBrand = {
     "The brand offers eco-conscious home and personal-care products."
   ],
   prohibited: ["100% pollution-free"],
-  preferred: [{ from: "eco-friendly brand", to: "eco-conscious products" }]
+  preferred: [{ from: "eco-friendly brand", to: "eco-conscious products" }],
+  visual: { colors: ["#20cfa0", "#0b1828"], logoSignature: null }
 };
 
 const sampleText = "EcoGlow is India's number one eco-friendly brand! Our products are 100% pollution-free and completely save the planet. Buy now!";
@@ -99,6 +101,10 @@ export default function App() {
   const [factDraft, setFactDraft] = useState("");
   const [newRuleCategory, setNewRuleCategory] = useState("Messaging");
   const [showAddRule, setShowAddRule] = useState(false);
+  const [visualFile, setVisualFile] = useState(null);
+  const [visualResult, setVisualResult] = useState(null);
+  const [visualBusy, setVisualBusy] = useState(false);
+  const [paletteDraft, setPaletteDraft] = useState((store.brand.visual?.colors || []).join(", "));
 
   useEffect(() => saveStore(store), [store]);
   const reviews = store.reviews || [];
@@ -178,6 +184,7 @@ export default function App() {
   const nav = [
     ["overview", LayoutDashboard, "Overview"],
     ["check", ClipboardCheck, "Check content"],
+    ["visual", ImageIcon, "Visual checks"],
     ["knowledge", BookOpen, "Brand knowledge"],
     ["history", History, "Review history"]
   ];
@@ -251,6 +258,51 @@ export default function App() {
         {!activeReview ? <div className="panel empty-state"><b>No review selected</b><p>Choose a review from the dashboard or history.</p><button className="secondary" onClick={()=>go("history")}>Open history</button></div> :
         <div className="review-detail-grid"><div className="panel"><div className="panel-head"><div><div className="eyebrow">SUBMITTED CONTENT</div><h2>{activeReview.title}</h2></div><Badge>{activeReview.type}</Badge></div><div className="content-preview">{activeReview.original}</div><div className="eyebrow issue-heading">DETECTED ISSUES · {activeReview.issues?.length||0}</div>{(activeReview.issues||[]).map(i=><div className="compact-issue" key={i.id}><div className="issue-top"><b>{i.category}</b><Badge kind={i.severity==="High"?"danger":"warning"}>{i.severity}</Badge></div><blockquote>“{i.phrase}”</blockquote><small>RULE</small><p>{i.rule}</p><small>SUGGESTION</small><p>{i.suggestion}</p></div>)}</div>
           <div className="panel"><div className="eyebrow">HUMAN DECISION</div><h2>Final review</h2><label className="field-label">Final content<textarea className="final-content" value={activeReview.finalContent ?? activeReview.original} onChange={e=>setActiveReview({...activeReview,finalContent:e.target.value})}/></label><label className="field-label">Reviewer comments<textarea value={comments} onChange={e=>setComments(e.target.value)} placeholder="Add context for your decision (optional)"/></label><div className="review-actions"><button className="danger-button" onClick={()=>updateReview("Rejected")}><X size={15}/> Reject</button><button className="primary" onClick={()=>updateReview("Approved")}><Check size={16}/> Approve content</button></div><button className="text-button full" onClick={()=>{setContent(activeReview.finalContent??activeReview.original);setTitle(activeReview.title);setPage("check");setAnalysis(null);}}>Re-check edited content <ArrowUpRight size={14}/></button><p className="muted tiny">Approval records your human decision. Review the final text carefully before approving.</p></div></div>}
+      </section>}
+      {page === "visual" && <section className="page">
+        <div className="eyebrow">BRAND GOVERNANCE / VISUAL REVIEW</div>
+        <div className="page-heading-row"><div><h1>Visual brand checks</h1><p>Compare a creative against your configured brand palette and logo reference.</p></div><Badge kind="info"><ImageIcon size={13}/> Image analysis</Badge></div>
+        <div className="knowledge-grid">
+          <div className="panel">
+            <div className="eyebrow">BRAND REFERENCES</div><h2>Set visual identity</h2>
+            <label className="field-label">Approved brand colours (HEX, comma-separated)
+              <input value={paletteDraft} onChange={e=>setPaletteDraft(e.target.value)} placeholder="#20cfa0, #0b1828"/>
+            </label>
+            <button className="secondary" onClick={()=>{
+              const colors=paletteDraft.split(",").map(x=>x.trim()).filter(x=>/^#[0-9a-f]{6}$/i.test(x));
+              if(!colors.length){notify("Enter at least one valid HEX colour, e.g. #20cfa0.");return;}
+              updateBrand({...brand,visual:{...(brand.visual||{}),colors}});
+              notify("Approved colour palette saved.");
+            }}><Save size={14}/> Save palette</button>
+            <label className="field-label">Logo reference image
+              <input type="file" accept="image/png,image/jpeg,image/webp" onChange={async e=>{
+                const f=e.target.files?.[0]; if(!f)return;
+                try{const logoSignature=await makeLogoReference(f);updateBrand({...brand,visual:{...(brand.visual||{}),logoSignature}});notify("Logo reference saved in this browser.");}
+                catch(err){notify(err.message || "Could not read logo image.");}
+              }}/>
+            </label>
+            <p className="muted tiny">Use a clean, square logo image on a plain background for the approximate visual comparison.</p>
+          </div>
+          <div className="panel">
+            <div className="eyebrow">CREATIVE TO REVIEW</div><h2>Upload a marketing image</h2>
+            <label className="field-label">Image file (PNG, JPG or WebP)
+              <input type="file" accept="image/png,image/jpeg,image/webp" onChange={e=>{setVisualFile(e.target.files?.[0]||null);setVisualResult(null);}}/>
+            </label>
+            {visualFile && <p className="muted">{visualFile.name} · {(visualFile.size/1024).toFixed(0)} KB</p>}
+            <button className="primary" disabled={!visualFile||visualBusy} onClick={async()=>{
+              setVisualBusy(true);setVisualResult(null);
+              try{setVisualResult(await analyzeVisualCreative(visualFile,brand));}
+              catch(err){notify(err.message||"Visual analysis failed.");}
+              finally{setVisualBusy(false);}
+            }}>{visualBusy?<><span className="spinner"/> Checking image...</>:<><Sparkles size={15}/> Analyze creative</>}</button>
+          </div>
+        </div>
+        {visualResult && <div className="panel">
+          <div className="panel-head"><div><div className="eyebrow">VISUAL ANALYSIS COMPLETE</div><h2>Creative review findings</h2></div><Badge kind="warning">Human confirmation required</Badge></div>
+          <div className="two-fields"><div><b>Image dimensions</b><p className="muted">{visualResult.width} × {visualResult.height}px</p></div><div><b>Dominant sampled colours</b><div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap"}}>{visualResult.colors.map(c=><span key={c} title={c} style={{width:28,height:28,borderRadius:6,background:c,border:"1px solid #789"}} />)}</div></div></div>
+          {visualResult.findings.map((f,i)=><div className="compact-issue" key={i}><div className="issue-top"><b>{f.title}</b><Badge kind={f.severity==="Medium"?"warning":"info"}>{f.severity}</Badge></div><p>{f.detail}</p></div>)}
+          <p className="muted tiny">{visualResult.disclaimer}</p>
+        </div>}
       </section>}
       <footer className="footer"><span>© 2026 Suraksha Setu</span><span>AI-assisted review · Human decision required</span></footer>
     </main>
